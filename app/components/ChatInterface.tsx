@@ -1,7 +1,10 @@
 'use client';
 
+'use client';
+
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2 } from 'lucide-react';
+import { Send, Bot, User, Loader2, Mic } from 'lucide-react';  // 添加了 Mic 图标
+import { useLocalStorage } from '../hooks/useLocalStorage';     // 添加这行
 
 interface Message {
     id: string;
@@ -10,21 +13,39 @@ interface Message {
 }
 
 export default function ChatInterface() {
-    const [messages, setMessages] = useState<Message[]>([
+    const [messages, setMessages] = useState<Message[]>(() => {
+    // 尝试从 localStorage 读取
+    const saved = localStorage.getItem('chat-history');
+    if (saved) {
+        try {
+            return JSON.parse(saved);
+        } catch (e) {
+            console.warn('Failed to parse saved messages');
+        }
+    }
+    // 默认欢迎消息
+    return [
         {
             id: 'welcome',
             role: 'assistant',
             content: '你好！我是AI助手，有什么可以帮你的吗？',
         },
-    ]);
+    ];
+});
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [isListening, setIsListening] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // 自动滚动到底部
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
+
+    // 自动保存到 localStorage
+useEffect(() => {
+    localStorage.setItem('chat-history', JSON.stringify(messages));
+}, [messages]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -99,6 +120,31 @@ export default function ChatInterface() {
         }
     };
 
+    const startListening = () => {
+        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+            alert('您的浏览器不支持语音输入，请使用Chrome浏览器');
+            return;
+        }
+
+        // @ts-ignore - 浏览器API类型定义问题
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+
+        recognition.lang = 'zh-CN';
+        recognition.continuous = false;
+        recognition.interimResults = false;
+
+        recognition.onstart = () => setIsListening(true);
+        recognition.onend = () => setIsListening(false);
+
+        recognition.onresult = (event: any) => {
+            const transcript = event.results[0][0].transcript;
+            setInput(transcript);
+        };
+
+        recognition.start();
+    };
+
     return (
         <div className="flex flex-col h-screen bg-gray-50">
             {/* 头部 */}
@@ -138,8 +184,8 @@ export default function ChatInterface() {
 
                             <div
                                 className={`max-w-[80%] rounded-2xl px-4 py-2 ${message.role === 'user'
-                                        ? 'bg-blue-500 text-white'
-                                        : 'bg-white border border-gray-200'
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-white border border-gray-200'
                                     }`}
                             >
                                 <p className="whitespace-pre-wrap">{message.content}</p>
@@ -171,14 +217,27 @@ export default function ChatInterface() {
             {/* 输入框 */}
             <div className="bg-white border-t px-4 py-4">
                 <form onSubmit={handleSubmit} className="max-w-3xl mx-auto flex gap-2">
-                    <input
-                        type="text"
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        placeholder="输入你的问题..."
-                        disabled={isLoading}
-                        className="flex-1 border border-gray-300 rounded-full px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-                    />
+                    <div className="flex-1 flex items-center border border-gray-300 rounded-full bg-white">
+                        <input
+                            type="text"
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            placeholder="输入你的问题..."
+                            disabled={isLoading}
+                            className="flex-1 px-4 py-2 rounded-l-full focus:outline-none disabled:bg-gray-100"
+                        />
+                        <button
+                            type="button"
+                            onClick={startListening}
+                            disabled={isLoading}
+                            className={`p-2 rounded-r-full transition-colors ${isListening
+                                ? 'bg-red-500 text-white'
+                                : 'text-gray-400 hover:text-blue-500'
+                                }`}
+                        >
+                            <Mic className="w-5 h-5" />
+                        </button>
+                    </div>
                     <button
                         type="submit"
                         disabled={isLoading || !input.trim()}
